@@ -1,42 +1,14 @@
 {
   "name": "schematools",
-  "version": "0.0.1",
+  "version": "1.0.0-alpha.1",
   "description": "JSON schema tools",
-  "main": "dist/index.js",
-  "typings": "dist/index.d.ts",
-  "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "npm run build",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/jstone-dev/schematools.git"
-  },
-  "keywords": [
-    "JSON",
-    "schema",
-    "semistructured"
-  ],
   "author": {
     "name": "Jeremy Stone",
     "email": "stoneje@msn.com"
   },
-  "license": "ISC",
-  "homepage": "https://github.com/jstone-dev/schematools#readme",
   "bugs": {
     "url": "https://github.com/jstone-dev/schematools/issues"
   },
-  "engines": {
-    "node": ">= 20.0.0"
-  },
-  "exports": {
-    ".": "./dist/index.js",
-    "./browser": "./dist/browser.js"
-  },
-  "files": [
-    "dist/**/*"
-  ],
   "dependencies": {
     "graphlib": "^2.1.8",
     "lodash": "^4.17.21",
@@ -61,5 +33,34 @@
   "jest": {
     "transform": {}
   },
-  "type": "module"
+  "keywords": [
+    "JSON",
+    "schema",
+    "schema references",
+    "schema registry",
+    "semistructured"
+  ],
+  "homepage": "https://github.com/jstone-dev/schematools#readme",
+  "license": "ISC",
+  "engines": {
+    "node": ">= 20.0.0"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./browser": "./dist/browser.js"
+  },
+  "files": [
+    "dist/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jstone-dev/schematools.git"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "type": "module",
+  "typings": "dist/index.d.ts"
 }
