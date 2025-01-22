@@ -31,13 +31,19 @@
     "node": ">= 20.0.0"
   },
   "exports": {
-    "import": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./browser": "./dist/browser.js"
   },
   "files": [
     "dist/**/*"
   ],
   "dependencies": {
-    "lodash": "^4.17.21"
+    "graphlib": "^2.1.8",
+    "lodash": "^4.17.21",
+    "path": "^0.12.7",
+    "querystring": "^0.2.1",
+    "slash": "^5.1.0",
+    "uri-js": "^4.4.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

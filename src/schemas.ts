@@ -1,6 +1,7 @@
 import _ from 'lodash'
 
 import {SchemaError} from './errors.js'
+import {resolveRefs, UnresolvedRefDetails} from './json-refs.js'
 import {
   pathDepth,
   type PropertyPath,
@@ -32,7 +33,7 @@ export interface Relationship {
   toMany: boolean
   storage: RelationshipStorage
   // TODO Last remnant of entity types here. It's still useful, though we may be able to get by with just schemaRef.
-  entityTypeName: string | undefined
+  entityTypeName?: string
   schemaRef?: string
   /** The relationship property's schema. */
   schema: Schema
@@ -52,6 +53,44 @@ export interface Relationship {
 export type SchemaRefResolver = (schemaRef: string) => Schema | undefined
 
 /**
+ * Expand references to other schemas.
+ *
+ * The returned schema may contain circular references and is therefore not serializable as JSON without special
+ * handling.
+ *
+ * @param schema The schema to expand.
+ * @param resolveSchemaRef A function that resolves references to other schemas.
+ * @returns A new schema without schema references. It may contain circular references.
+ */
+export async function expandSchemaReferences(
+  schema: Schema,
+  resolveSchemaRef: SchemaRefResolver
+): Promise<Schema | undefined> {
+  return await resolveRefs(schema, {
+    // Only resolve references to other schemas. Ignore '$ref' when it occurs as the name of a property in an object
+    // schema.
+    filter: (_refDetails: UnresolvedRefDetails, path: string[]) => {
+      return path[path.length - 1] != 'properties'
+    },
+    hooks: {
+      beforeLoad: (uri: string) => {
+        return {
+          result: resolveSchemaRef(uri),
+          continueLoading: false
+        }
+      }
+    },
+    refPostProcessor: (obj: object) => {
+      if (_.isString(obj)) {
+        return resolveSchemaRef(obj)
+      }
+      return obj
+    },
+    resolveCirculars: true
+  })
+}
+
+/**
  * Find one property in a schema, traversing referenced schemas if necessary.
  *
  * @param schema The schema to search.
@@ -66,26 +105,29 @@ export function findPropertyInSchema(
 ): Schema | undefined {
   const pathArr = propertyPathToArray(path)
 
-  if (schema.allOf) {
-    // Look in each schema option for the first property remaining in the path. Start with the last schema option, since
-    // the options shouldn't have properties in common (but if they do, we can assume that the last one takes
-    // precedence).
-    for (const schemaOption of _.reverse(schema.allOf)) {
-      if (schemaOption.type != 'object') {
-        // Log error?
-      } else {
-        const subschema = schemaOption?.properties?.[path[0]]
-        if (path.length == 1) {
-          return subschema
-        } else {
-          return findPropertyInSchema(subschema, _.slice(pathArr, 1), resolveSchemaRef)
-        }
-      }
+  if (schema.$ref) {
+    const referencedSchema = resolveSchemaRef(schema.$ref)
+    if (!referencedSchema) {
+      // TODO Log error?
+      return undefined
     }
-  } else if (schema.oneOf) {
-    // Look in each schema option for the remainder of the path. Return the first match.
-    for (const schemaOption of schema.oneOf) {
-      if (schemaOption.type != 'object') {
+    return findPropertyInSchema(referencedSchema, pathArr, resolveSchemaRef)
+  }
+
+  if (pathArr.length == 0) {
+    return schema
+  }
+
+  if (schema.allOf) {
+    // Look in each schema option. Start with the last schema option; the options shouldn't have properties in common,
+    // but if they do, we give the last one precedence.
+    for (let schemaOption of _.reverse(schema.allOf)) {
+      // If the schema option is a reference, resolve it.
+      while (schemaOption && schemaOption.$ref) {
+        schemaOption = resolveSchemaRef(schemaOption.$ref)
+      }
+
+      if (!schemaOption) {
         // Log error?
       } else {
         const result = findPropertyInSchema(schemaOption, pathArr, resolveSchemaRef)
@@ -94,25 +136,39 @@ export function findPropertyInSchema(
         }
       }
     }
-  } else if (schema.$ref) {
-    const referencedSchema = resolveSchemaRef(schema.$ref)
-    if (!referencedSchema) {
-      // TODO Log error?
-      return undefined
+    return undefined
+  } else if (schema.oneOf) {
+    // Look in each schema option. Return the first match.
+    for (let schemaOption of schema.oneOf) {
+      // If the schema option is a reference, resolve it.
+      while (schemaOption && schemaOption.$ref) {
+        schemaOption = resolveSchemaRef(schemaOption.$ref)
+      }
+
+      if (!schemaOption) {
+        // Log error?
+      } else {
+        const result = findPropertyInSchema(schemaOption, pathArr, resolveSchemaRef)
+        if (result) {
+          return result
+        }
+      }
     }
-    return findPropertyInSchema(referencedSchema, path, resolveSchemaRef)
+    return undefined
   } else {
-    const schemaType = (schema as any).type
-    switch (schemaType) {
+    switch (schema.type) {
       case 'object': {
-        const subschema = _.get(schema, ['properties', path[0]], null)
-        if (path.length == 1 || subschema == null) {
+        const subschema = _.get(schema, ['properties', pathArr[0]], null)
+        if (pathArr.length == 1 || subschema == null) {
           return subschema
         } else {
           return findPropertyInSchema(subschema, _.slice(pathArr, 1), resolveSchemaRef)
         }
       }
       case 'array': {
+        if (!_.isInteger(pathArr[0])) {
+          return undefined
+        }
         const subschema = _.get(schema, ['items'], null)
         if (subschema == null) {
           // TODO Warn about missing items in schema
@@ -190,7 +246,7 @@ export function findRelationshipsInSchema(
   // properties noted above from the current schema node, we will subsequently work only with the referenced schema.
   // Relationship properties from the original schema node take precedence over relationship properties from hthe
   // referenced schema.
-  if (schema.$ref) {
+  while (schema.$ref) {
     const referencedSchema = resolveSchemaRef(schema.$ref)
     if (!referencedSchema) {
       // TODO Log error?
@@ -368,7 +424,7 @@ export function findTransientPropertiesInSchema(
 
   // If this schema node has a reference to another schema, get the referenced schema. Except for any transience noted
   // above from the current schema node, we will subsequently work only with the referenced schema.
-  if (schema.$ref) {
+  while (schema.$ref) {
     const referencedSchema = resolveSchemaRef(schema.$ref)
     if (!referencedSchema) {
       // TODO Log error?
@@ -401,7 +457,7 @@ export function findTransientPropertiesInSchema(
   const schemaType = schema.type
   const schemaOptions = schema.allOf || schema.oneOf
   if (schemaOptions && _.isArray(schemaOptions)) {
-    // The schema node has allOf or oneOf set. Call findRelationships on each schema option.
+    // The schema node has allOf or oneOf set. Call findTransientPropertiesInSchema on each schema option.
     // TODO Are we wrongly assuming that transient is not set on root nodes of schema options?
     for (const schemaOption of schemaOptions) {
       transientPropertyPaths = transientPropertyPaths.concat(
@@ -468,4 +524,70 @@ export function findTransientPropertiesInSchema(
     }
   }
   return transientPropertyPaths
+}
+
+/**
+ * Determine whether a property is required by a schema.
+ *
+ * A property is required if all of its ancestors are required. If any ancestor is optional, the property is optional.
+ * Therefore, calling this function on a subschema may produca a different result than calling it on the parent schema.
+ *
+ * "Required" status is not recorded in the property itself but in its parent object schema.
+ *
+ * For efficiency, this function does not always check that the specified property exists. It only tranverses the schema
+ * until some non-required ancestor is encountered. If the property does not exist, this function will return false.
+ *
+ * @param schema The schema to search.
+ * @param path The property path to check, in dot-and-bracket notation or as an array.
+ * @param resolveSchemaRef A function that resolves references to other schemas.
+ * @returns `true` if the property is required, or `false` if it is optional or does not exist.
+ */
+export function propertyIsRequiredInSchema(
+  schema: Schema,
+  path: PropertyPath,
+  resolveSchemaRef: SchemaRefResolver
+): Schema | undefined {
+  const pathArr = propertyPathToArray(path)
+
+  if (schema.$ref) {
+    const referencedSchema = resolveSchemaRef(schema.$ref)
+    if (!referencedSchema) {
+      // TODO Log error?
+      return false
+    }
+    return propertyIsRequiredInSchema(referencedSchema, pathArr, resolveSchemaRef)
+  }
+
+  const schemaOptions = schema.allOf || schema.oneOf
+  if (schemaOptions && _.isArray(schemaOptions)) {
+    // The schema node has allOf or oneOf set. Check whether any schema option requires the property.
+    for (const schemaOption of schemaOptions) {
+      if (propertyIsRequiredInSchema(schemaOption, path, resolveSchemaRef)) {
+        return true
+      }
+    }
+  } else {
+    switch (schema.type) {
+      case 'object': {
+        if (!(schema.required || []).includes(pathArr[0])) {
+          return false
+        }
+        const subschema = _.get(schema, ['properties', pathArr[0]], null)
+        if (pathArr.length == 1 || subschema == null) {
+          return true
+        } else {
+          return propertyIsRequiredInSchema(subschema, _.slice(pathArr, 1), resolveSchemaRef)
+        }
+      }
+      case 'array':
+        if (pathArr.length == 1) {
+          // Array entries are never required.
+          // TODO Warn that we're checking whether an array entry is required?
+          return false
+        }
+        return true
+      default:
+        return true
+    }
+  }
 }

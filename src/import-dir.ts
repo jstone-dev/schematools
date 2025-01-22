@@ -14,6 +14,8 @@ interface DirectoryImportOptions {
   extensions: string[]
   /** Type assertion (for importing JSON files). */
   assertType?: 'json'
+  /** Import callback */
+  importedModule?: (path: string, module: any) => Promise<void>
 }
 
 const DEFAULT_DIRECTORY_IMPORT_OPTIONS = {
@@ -130,10 +132,13 @@ export async function importDirectory(
         // Using file:// makes this work with Windows paths that begin with drive letters.
         const importOptions: ImportCallOptions = {}
         if (options.assertType) {
-          importOptions.assert = {type: options.assertType}
+          importOptions.with = {type: options.assertType}
         }
-        const {default: defaultExport} = await import(`file://${fullPath}`, importOptions)
-        result[submoduleName] = defaultExport
+        const {default: module} = await import(`file://${fullPath}`, importOptions)
+        result[submoduleName] = module
+        if (options.importedModule) {
+          await options.importedModule(fullPath, module)
+        }
       }
     }
   }

@@ -53,10 +53,10 @@ The following subsections describe keyword support relative to the core/validati
 Supported:
 - Simple types and their properties
 - Objects and arrays
-- `allOf` and `anyOf`
+- `allOf` and `oneOf`
 
 Unsupported:
-- `oneOf`
+- `anyOf`
 - `not`
 - `if`, `then`, and `else`
 - `properties`, `patternProperties`, and `additionalProperties`

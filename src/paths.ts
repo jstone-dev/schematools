@@ -22,22 +22,30 @@ export function dottedPathToArray(path: PropertyPathStr): PropertyPathArray {
   const pathArray = []
   let tail = path
   while (tail.length > 0) {
-    const match = tail.match(/^([^[]*)\[([0-9]+|\*)\]\.?(.*)$/)
-    if (!match) {
-      pathArray.push(tail)
-      tail = ''
-    } else {
-      if (match[1] != null) {
-        pathArray.push(match[1])
+    const propertyMatch = tail.match(/^([^.[\]]+)((\[|\.)(.*))?$/)
+    if (propertyMatch) {
+      pathArray.push(propertyMatch[1])
+      if (propertyMatch[3] == '[') {
+        tail = propertyMatch[2]
+      } else {
+        tail = propertyMatch[4] || ''
       }
-      if (match[2] != null) {
-        if (match[2] == '*') {
+    } else {
+      const arrayElementMatch = tail.match(/^\[([0-9]+|\*)\]((\[|\.)(.*))?/)
+      if (arrayElementMatch) {
+        if (arrayElementMatch[1] == '*') {
           pathArray.push(-1)
         } else {
-          pathArray.push(parseInt(match[1]))
+          pathArray.push(parseInt(arrayElementMatch[1]))
         }
+        if (arrayElementMatch[3] == '[') {
+          tail = arrayElementMatch[2]
+        } else {
+          tail = arrayElementMatch[4] || ''
+        }
+      } else {
+        throw new Error(`Malformed dotted/bracketed path: ${path}`)
       }
-      tail = match[3] || ''
     }
   }
   return pathArray
