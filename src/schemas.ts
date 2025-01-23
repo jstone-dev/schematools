@@ -234,6 +234,8 @@ export function findRelationshipsInSchema(
   const currentPathArr = propertyPathToArray(currentPath)
   const limitToPathArr = limitToPath ? propertyPathToArray(limitToPath) : undefined
 
+  let relationships: Relationship[] = []
+
   // Note any relationship properties specified by the current schema node.
   let relationshipProperties: Partial<Relationship> = {
     entityTypeName: schema.entityType,
@@ -262,6 +264,29 @@ export function findRelationshipsInSchema(
     schema = referencedSchema
   }
 
+  // Check whether the current schema node is a relationship. If it is, add it to the list of relationships.
+  const relationshipIsReference =
+    relationshipProperties.storage && ['ref', 'inverse-ref'].includes(relationshipProperties.storage)
+  if (relationshipProperties.storage && (!allowedStorage || allowedStorage.includes(relationshipProperties.storage))) {
+    const relationship: Relationship = {
+      path: propertyPathToDottedPath(currentPathArr),
+      toMany: false,
+      storage: relationshipProperties.storage || 'copy',
+      entityTypeName: relationshipProperties.entityTypeName,
+      schemaRef: relationshipProperties.schemaRef,
+      schema,
+      depthFromParent
+    }
+    if (relationshipProperties.storage == 'inverse-ref') {
+      if (!relationshipProperties.foreignKeyPath) {
+        // TODO Include the current location in the logged error.
+        throw new SchemaError(`Missing foreign key path in relationship with storage type inverse-ref`)
+      }
+      relationship.foreignKeyPath = relationshipProperties.foreignKeyPath
+    }
+    relationships.push(relationship)
+  }
+
   // Limit the tree traversal depth.
   if (maxDepth == undefined && nodesTraversedInPath.includes(schema)) {
     // If no maximum depth was specified, do not traverse circular references.
@@ -272,12 +297,10 @@ export function findRelationshipsInSchema(
     return []
   }
 
-  let relationships: Relationship[] = []
   const schemaType = schema.type
   const schemaOptions = schema.allOf || schema.oneOf
   if (schemaOptions && _.isArray(schemaOptions)) {
     // The schema node has allOf or oneOf set. Call findRelationships on each schema option.
-    // TODO Should we stop assuming that transient is not set on the current schema node?
     for (const schemaOption of schemaOptions) {
       relationships = relationships.concat(
         findRelationshipsInSchema(
@@ -295,36 +318,10 @@ export function findRelationshipsInSchema(
   } else {
     switch (schemaType) {
       case 'object':
-        // The current schema node is an object schema. Check whether it is itself a relationship, then traverse its
-        // properties.
         {
-          const relationshipIsReference =
-            relationshipProperties.storage && ['ref', 'inverse-ref'].includes(relationshipProperties.storage)
-          if (
-            relationshipProperties.storage &&
-            (!allowedStorage || allowedStorage.includes(relationshipProperties.storage))
-          ) {
-            const relationship: Relationship = {
-              path: propertyPathToDottedPath(currentPathArr),
-              toMany: false,
-              storage: relationshipProperties.storage || 'copy',
-              entityTypeName: relationshipProperties.entityTypeName,
-              schemaRef: relationshipProperties.schemaRef,
-              schema,
-              depthFromParent
-            }
-            if (relationshipProperties.storage == 'inverse-ref') {
-              if (!relationshipProperties.foreignKeyPath) {
-                // TODO Include the current location in the logged error.
-                throw new SchemaError(`Missing foreign key path in relationship with storage type inverse-ref`)
-              }
-              relationship.foreignKeyPath = relationshipProperties.foreignKeyPath
-            }
-            relationships.push(relationship)
-          }
-
-          // Traverse the object schema's properties. If limitToPath is set, only traverse one property (the first one
-          // in limitToPath) or none if limitToPath is empty or its first property does not exist in the schema.
+          // The current schema node is an object schema. Traverse its properties. If limitToPath is set, only traverse
+          // one property (the first one in limitToPath) or none if limitToPath is empty or its first property does not
+          // exist in the schema.
           const propertySchemas = _.get(schema, ['properties'], [])
           let propertiesToTraverse = _.keys(propertySchemas)
           if (limitToPathArr) {
