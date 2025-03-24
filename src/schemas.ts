@@ -270,7 +270,7 @@ export function findRelationshipsInSchema(
   if (relationshipProperties.storage && (!allowedStorage || allowedStorage.includes(relationshipProperties.storage))) {
     const relationship: Relationship = {
       path: propertyPathToDottedPath(currentPathArr),
-      toMany: false,
+      toMany: _.last(currentPathArr) == -1,
       storage: relationshipProperties.storage || 'copy',
       entityTypeName: relationshipProperties.entityTypeName,
       schemaRef: relationshipProperties.schemaRef,
