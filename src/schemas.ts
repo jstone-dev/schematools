@@ -285,6 +285,7 @@ export function findRelationshipsInSchema(
       relationship.foreignKeyPath = relationshipProperties.foreignKeyPath
     }
     relationships.push(relationship)
+    depthFromParent = 0
   }
 
   // Limit the tree traversal depth.
